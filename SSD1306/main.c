@@ -7,7 +7,7 @@
 
 #include <avr/io.h>
 
-#include "graphics.h"
+#include "ssd1306.h"
 
 int main(void)
 {
@@ -15,9 +15,9 @@ int main(void)
 	clear_display();
 	
 	set_scale(NORMAL);
-	plot_num(12345678, 0, 0, 8);
+	plot_str("abc", 0, 0, 3);
 	set_scale(LARGE);
-	plot_num(1234, 2, 0, 4);
+	plot_bin(0xAB, 2, 0, 8);
 
     while (1) 
     {

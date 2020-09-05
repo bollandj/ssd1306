@@ -1,9 +1,22 @@
 
-#include "graphics.h"
-#include "graphicsfont.h"
+/**************************************************************************/
+/*!
+  @file ssd1306.c
+  @mainpage SSD1306 Library
+  @section intro Introduction
+  
+  @section author Author
+  
+  @section license License
+  
+ */
+/**************************************************************************/
 
-charfunc_t plot_char_functions[2] = {plot_char, plot_char_large};
+#include "ssd1306.h"
+#include "font.h"
 
+charfunc_t plot_char_functions[2] = {plot_char_normal, plot_char_large};
+charfunc_t plot_char;
 static uint8_t scale;
 
 // SSD1306 initialisation sequence
@@ -35,7 +48,10 @@ const uint8_t init_seq[INIT_SEQ_LEN] PROGMEM =
 	0xAF  // Display on
 };
 
-// converts abcdefgh to aabbccddeeffgghh
+/*!
+ * @brief Converts bit pattern abcdefgh to aabbccddeeffgghh
+ * @param x input byte to be stretched
+ */
 static uint16_t stretch(uint16_t x)
 {
 	x = (x & 0xF0) << 4 | (x & 0x0F);
@@ -44,7 +60,10 @@ static uint16_t stretch(uint16_t x)
 	return x | x << 1;
 }
 
-// converts abcdefgh to hgfedcba
+/*!
+ * @brief Converts bit pattern abcdefgh to hgfedcba
+ * @param x input byte to be reversed
+ */
 static uint8_t reverse(uint8_t x)
 {
 	x = ((x >> 1) & 0x55) | ((x << 1) & 0xaa);
@@ -53,8 +72,9 @@ static uint8_t reverse(uint8_t x)
 	return x;
 }
 
-
-
+/*!
+ * @brief Initialise display by sending initialisation command sequence (init_seq)
+ */
 void init_display()
 {
 	i2c_init();
@@ -71,6 +91,9 @@ void init_display()
 	set_start_line(0);
 }
 
+/*!
+ * @brief Blank all display pixels
+ */
 void clear_display()
 {
 	i2c_start(OLED_ADDRESS);
@@ -90,6 +113,10 @@ void clear_display()
 	}
 }
 
+/*!
+ * @brief Set the line of the display RAM that corresponds to the first line of the display
+ * @param line start line
+ */
 void set_start_line(uint8_t line)
 {
 	i2c_start(OLED_ADDRESS);
@@ -98,13 +125,23 @@ void set_start_line(uint8_t line)
 	i2c_stop();
 }
 
+/*!
+ * @brief Set the scale of displayed characters
+ * @param _scale character height (NORMAL/0 = 1 line, LARGE/1 = 2 lines)
+ */
 void set_scale(uint8_t _scale)
 {
 	scale = _scale;
+	plot_char = plot_char_functions[scale];
 }
 
-// Plot a single 8x6 character onscreen
-void plot_char(char c, uint8_t line, uint8_t col)
+/*!
+ * @brief Plot a single character onscreen (NORMAL scale)
+ * @param c character to be plotted
+ * @param line line on which character is to be plotted
+ * @param col start column for character (0 - DISPLAY_WIDTH-1)
+ */
+void plot_char_normal(char c, uint8_t line, uint8_t col)
 {	
 	i2c_start(OLED_ADDRESS);
 	i2c_write(COMMAND);
@@ -122,6 +159,12 @@ void plot_char(char c, uint8_t line, uint8_t col)
 	i2c_stop();
 }
 
+/*!
+ * @brief Plot a single character onscreen (LARGE scale)
+ * @param c character to be plotted
+ * @param line start line on which character is to be plotted (line+1 will also be occupied)
+ * @param col start column for character (0 - DISPLAY_WIDTH-1)
+ */
 void plot_char_large(char c, uint8_t line, uint8_t col)
 {	
 	i2c_start(OLED_ADDRESS);
@@ -149,60 +192,82 @@ void plot_char_large(char c, uint8_t line, uint8_t col)
 	i2c_stop();
 }
 
-void plot_string(char *str, uint8_t line, uint8_t col, uint8_t len)
+/*!
+ * @brief Plot an ASCII string onscreen
+ * @param str string to be plotted
+ * @param line line on which string is to be plotted
+ * @param col start column (0 - floor(DISPLAY_WIDTH/CHAR_WIDTH)-1) 
+ * @param len maximum characters to plot (0 = no limit)
+ */
+void plot_str(char *str, uint8_t line, uint8_t col, uint8_t len)
 {
 	uint8_t i = 0;
 	char c;
 	
 	uint8_t column = col * CHAR_WIDTH;
-	
-	charfunc_t plot_char_function = plot_char_functions[scale];
-	
+		
 	if (!len) len = 255; // 0 defaults to max length
 	
-	for (i = 0; (i < len) && (c = *str++); i++, column+=(CHAR_WIDTH<<scale))
-		plot_char_function(c, line, column);		
+	for (i = 0; (i < len) && (c = *str++); i++)
+	{
+		plot_char(c, line, column);
+		column += (CHAR_WIDTH << scale);
+	}
 }
 
 
 const uint32_t factors[10] = {1, 10, 100, 1000, 10000, 100000, 1000000,\
 							  10000000, 100000000, 1000000000};
 
-void plot_num(uint32_t num, uint8_t line, uint8_t col, uint8_t digits)
+/*!
+ * @brief Plot an unsigned integer
+ * @param num number to be plotted
+ * @param line line on which number is to be plotted
+ * @param col start column (0 - floor(DISPLAY_WIDTH/CHAR_WIDTH)-1)
+ * @param digits maximum number of digits to expect (this number of characters' worth of
+          space will be occupied on the display)
+ */
+void plot_int(uint32_t num, uint8_t line, uint8_t col, uint8_t digits)
 {
 	uint8_t z = 0;
 	
 	uint8_t column = col * CHAR_WIDTH;
 	
-	charfunc_t plot_char_function = plot_char_functions[scale];
-	
-	for (int8_t i = digits-1; i >= 0; i--, column+=(CHAR_WIDTH<<scale))
+	for (int8_t i = digits-1; i >= 0; i--)
 	{
 		uint8_t q = num / factors[i];
 		
 		if (q)
 		{
 			if (q > 9) q = 9;
-			plot_char_function('0' + q, line, column);
+			plot_char('0' + q, line, column);
 			num -= q * factors[i];
 			z = 1;
 		}
 		else
 		{
-			if (z || !i) plot_char_function('0', line, column);
-			else         plot_char_function(' ', line, column);
+			if (z || !i) plot_char('0', line, column);
+			else         plot_char(' ', line, column);
 		}
+		
+		column += (CHAR_WIDTH << scale);
 	}
 }
 
-void plot_num_signed(int32_t num, uint8_t line, uint8_t col, uint8_t digits)
+/*!
+ * @brief Plot a signed integer
+ * @param num number to be plotted
+ * @param line line on which number is to be plotted
+ * @param col start column (0 - floor(DISPLAY_WIDTH/CHAR_WIDTH)-1)
+ * @param digits maximum number of digits to expect (this number of characters' worth of
+          space, plus one more for '-' sign, will be occupied on the display)
+ */
+void plot_int_signed(int32_t num, uint8_t line, uint8_t col, uint8_t digits)
 {
 	uint8_t z = 0;
 	char sign;
 	
 	uint8_t column = col * CHAR_WIDTH;
-	
-	charfunc_t plot_char_function = plot_char_functions[scale];
 	
 	if (num < 0)
 	{
@@ -214,7 +279,7 @@ void plot_num_signed(int32_t num, uint8_t line, uint8_t col, uint8_t digits)
 		sign = ' ';
 	}
 	
-	for (int8_t i = digits-1; i >= 0; i--, column+=(CHAR_WIDTH<<scale))
+	for (int8_t i = digits-1; i >= 0; i--)
 	{
 		uint8_t q = num / factors[i];
 		
@@ -224,77 +289,91 @@ void plot_num_signed(int32_t num, uint8_t line, uint8_t col, uint8_t digits)
 			
 			if (!z)
 			{
-				plot_char_function(sign, line, column);
-				column += (CHAR_WIDTH<<scale);
+				plot_char(sign, line, column);
+				column += (CHAR_WIDTH << scale);
 				z = 1;
 			}
 
-			plot_char_function('0' + q, line, column);
+			plot_char('0' + q, line, column);
 			num -= q * factors[i];			
 		}
 		else
 		{
 			if (z)
 			{
-				plot_char_function('0', line, column);
+				plot_char('0', line, column);
 			}
 			else if (!i)
 			{
-				plot_char_function(' ', line, column);
-				column += (CHAR_WIDTH<<scale);
-				plot_char_function('0', line, column);
+				plot_char(' ', line, column);
+				column += (CHAR_WIDTH << scale);
+				plot_char('0', line, column);
 			}
 			else
 			{
 				plot_char(' ', line, column);
 			}
 		}
+		
+		column += (CHAR_WIDTH << scale);
 	}
 }
 
-// void plot_bin(uint16_t num, uint8_t line, uint8_t col)
-// {
-// 	plot_char('0', line, col);
-// 	col += scale;
-// 	plot_char('b', line, col);
-// 	col += scale;
-// 	
-// 	uint8_t i0;
-// 	if (num & 0xFF00) i0 = 15; // 16-bit
-// 	else			  i0 = 7; // 8-bit
-// 	
-// 	for (int8_t i = i0; i >= 0; i--)
-// 	{
-// 		plot_char(((num >> i) & 1) + 0x30, line, col);
-// 		col += scale;
-// 	}
-// }
-// 
-// void plot_hex(uint16_t num, uint8_t line, uint8_t col)
-// {
-// 	plot_char('0', line, col);
-// 	col += scale;
-// 	plot_char('x', line, col);
-// 	col += scale;
-// 	
-// 	uint8_t i0;
-// 	if (num & 0xFF00) i0 = 3; // 16-bit
-// 	else			  i0 = 1; // 8-bit
-// 	
-// 	col += scale * (i0 + 1); // move to end and plot backwards
-// 	
-// 	uint8_t nibble;
-// 	for (int8_t i = i0; i >= 0; i--)
-// 	{
-// 		col -= scale;
-// 		nibble = num & 0x000F;
-// 		
-// 		if (nibble <= 9) plot_char(nibble + 0x30, line, col);
-// 		else			 plot_char(nibble + 0x37, line, col);
-// 		
-// 		num >>= 4;
-// 	}
-// }
+/*!
+ * @brief Plot an integer as binary
+ * @param num number to be plotted
+ * @param line line on which number is to be plotted
+ * @param col start column (0 - floor(DISPLAY_WIDTH/CHAR_WIDTH)-1)
+ * @param digits maximum number of bits to expect (this number of characters' worth of
+          space will be occupied on the display)
+ */
+void plot_bin(uint32_t num, uint8_t line, uint8_t col, uint8_t bits)
+{
+	uint8_t column = col * CHAR_WIDTH;
+	
+	plot_str("0b", line, column, 2);
+	column += (CHAR_WIDTH << scale) * (bits + 2); // move to end and plot backwards
+	
+	uint8_t bit;
+	for (uint8_t i = bits; i > 0; i--)
+	{
+		column -= (CHAR_WIDTH << scale);
+		bit = num & 0x00000001;
+		
+		if (bit) plot_char('1', line, column);
+		else	 plot_char('0', line, column);
+		
+		num >>= 1;
+	}
+}
+
+/*!
+ * @brief Plot an integer as hex
+ * @param num number to be plotted
+ * @param line line on which number is to be plotted
+ * @param col start column (0 - floor(DISPLAY_WIDTH/CHAR_WIDTH)-1)
+ * @param digits maximum number of nibbles to expect (this number of characters' worth of
+          space will be occupied on the display)
+ */
+void plot_hex(uint32_t num, uint8_t line, uint8_t col, uint8_t nibbles)
+{
+	uint8_t column = col * CHAR_WIDTH;
+	
+	plot_str("0x", line, column, 2);
+	column += (CHAR_WIDTH << scale) * (nibbles + 2); // move to end and plot backwards
+	
+	uint8_t nibble;
+	for (uint8_t i = nibbles; i > 0; i--)
+	{
+		column -= (CHAR_WIDTH << scale);
+		nibble = num & 0x0000000F;
+		
+		if (nibble < 10) plot_char(nibble + 0x30, line, column);
+		else			 plot_char(nibble + 0x37, line, column);
+		
+		num >>= 4;
+	}
+}
 
 // void plot_block(uint8_t c, uint8_t line, uint8_t col)
 // {

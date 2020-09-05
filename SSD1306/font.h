@@ -1,8 +1,13 @@
 
-#include "graphicsfont.h"
+#ifndef GRAPHICSFONT_H_
+#define GRAPHICSFONT_H_
+
+#include <avr/pgmspace.h>
+
+#define CHAR_WIDTH 6 // including character spacing i.e. actual char width + 1
 
 /* ASCII characters 0-127 */
-const uint8_t font[128*5] PROGMEM = 
+const uint8_t font[128*5] PROGMEM =
 {
 	0x00, 0x00, 0x00, 0x00, 0x00,
 	0x3E, 0x5B, 0x4F, 0x5B, 0x3E,
@@ -133,3 +138,5 @@ const uint8_t font[128*5] PROGMEM =
 	0x02, 0x01, 0x02, 0x04, 0x02,
 	0x3C, 0x26, 0x23, 0x26, 0x3C
 };
+
+#endif /* GRAPHICSFONT_H_ */

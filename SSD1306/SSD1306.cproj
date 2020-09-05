@@ -136,16 +136,13 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="graphics.c">
+    <Compile Include="ssd1306.c">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="graphics.h">
+    <Compile Include="ssd1306.h">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="graphicsfont.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="graphicsfont.h">
+    <Compile Include="font.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="i2cmaster.c">
