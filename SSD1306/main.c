@@ -9,14 +9,15 @@
 
 #include "graphics.h"
 
-
 int main(void)
 {
     init_display();
 	clear_display();
-	set_start_line(0);
 	
-	plot_num_16(10, 1, 0, 4);
+	set_scale(NORMAL);
+	plot_num(12345678, 0, 0, 8);
+	set_scale(LARGE);
+	plot_num(1234, 2, 0, 4);
 
     while (1) 
     {

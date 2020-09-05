@@ -2,7 +2,11 @@
 #include "graphics.h"
 #include "graphicsfont.h"
 
-// Initialisation sequence for SSD1306 OLED module
+charfunc_t plot_char_functions[2] = {plot_char, plot_char_large};
+
+static uint8_t scale;
+
+// SSD1306 initialisation sequence
 const uint8_t init_seq[INIT_SEQ_LEN] PROGMEM =
 {
 	0xAE, // Display off
@@ -31,6 +35,7 @@ const uint8_t init_seq[INIT_SEQ_LEN] PROGMEM =
 	0xAF  // Display on
 };
 
+// converts abcdefgh to aabbccddeeffgghh
 static uint16_t stretch(uint16_t x)
 {
 	x = (x & 0xF0) << 4 | (x & 0x0F);
@@ -39,6 +44,7 @@ static uint16_t stretch(uint16_t x)
 	return x | x << 1;
 }
 
+// converts abcdefgh to hgfedcba
 static uint8_t reverse(uint8_t x)
 {
 	x = ((x >> 1) & 0x55) | ((x << 1) & 0xaa);
@@ -46,6 +52,8 @@ static uint8_t reverse(uint8_t x)
 	x = ((x >> 4) & 0x0f) | ((x << 4) & 0xf0);
 	return x;
 }
+
+
 
 void init_display()
 {
@@ -58,6 +66,9 @@ void init_display()
 		i2c_write(pgm_read_byte(&init_seq[i]));
 	
 	i2c_stop();
+	
+	set_scale(NORMAL);
+	set_start_line(0);
 }
 
 void clear_display()
@@ -87,56 +98,53 @@ void set_start_line(uint8_t line)
 	i2c_stop();
 }
 
+void set_scale(uint8_t _scale)
+{
+	scale = _scale;
+}
+
 // Plot a single 8x6 character onscreen
 void plot_char(char c, uint8_t line, uint8_t col)
-{
-	col *= CHAR_WIDTH;
-	
+{	
 	i2c_start(OLED_ADDRESS);
 	i2c_write(COMMAND);
-	// Set column address range
+	// set column address range
 	i2c_write(0x21); i2c_write(col); i2c_write(col + CHAR_WIDTH-1);
-	// Set page address range
+	// set page address range
 	i2c_write(0x22); i2c_write(line); i2c_write(line);
 	i2c_stop();
 	i2c_start(OLED_ADDRESS);
 	i2c_write(DATA);
 	
 	for (uint8_t seg = 0 ; seg < 5; seg++)
-		i2c_write(pgm_read_byte(&font[c*5 + seg]));
-		
-	// i2c_write(0x00);
+		i2c_write(pgm_read_byte(&font[c*(CHAR_WIDTH-1) + seg]));
 		
 	i2c_stop();
 }
 
 void plot_char_large(char c, uint8_t line, uint8_t col)
-{
-	col *= CHAR_WIDTH;
-	
+{	
 	i2c_start(OLED_ADDRESS);
 	i2c_write(COMMAND);
-	// Set column address range
-	i2c_write(0x21); i2c_write(col); i2c_write(col + (CHAR_WIDTH<<1)-1);
-	// Set page address range
+	// set column address range
+	i2c_write(0x21); i2c_write(col); i2c_write(col + (CHAR_WIDTH * 2) - 1);
+	// set page address range
 	i2c_write(0x22); i2c_write(line); i2c_write(line + 1);
 	i2c_stop();
 	i2c_start(OLED_ADDRESS);
 	i2c_write(DATA);
 	
-	for (uint8_t seg = 0 ; seg < CHAR_WIDTH-1; seg++)
+	for (uint8_t seg = 0; seg < CHAR_WIDTH-1; seg++)
 	{
 		uint16_t stretchbits = stretch(pgm_read_byte(&font[c*(CHAR_WIDTH-1) + seg]));
-		uint8_t stretchbits_L = (uint8_t)(stretchbits);
-		uint8_t stretchbits_H = (uint8_t)(stretchbits>>8);
+		uint8_t stretchbits_L = (uint8_t)(stretchbits & 0x00FF);
+		uint8_t stretchbits_H = (uint8_t)(stretchbits >> 8);
 				
 		i2c_write(stretchbits_L);
 		i2c_write(stretchbits_H);
 		i2c_write(stretchbits_L);
 		i2c_write(stretchbits_H);
 	}
-	
-	// for (uint8_t i = 0; i < 4; i++) i2c_write(0x00);
 	
 	i2c_stop();
 }
@@ -146,69 +154,101 @@ void plot_string(char *str, uint8_t line, uint8_t col, uint8_t len)
 	uint8_t i = 0;
 	char c;
 	
-	uint8_t column;
+	uint8_t column = col * CHAR_WIDTH;
 	
-	for (i = col; i < (col + len*6) && (c = *str++); i++)
-	{
-		
-	}
+	charfunc_t plot_char_function = plot_char_functions[scale];
+	
+	if (!len) len = 255; // 0 defaults to max length
+	
+	for (i = 0; (i < len) && (c = *str++); i++, column+=(CHAR_WIDTH<<scale))
+		plot_char_function(c, line, column);		
 }
 
 
-const uint16_t factors5] = {1, 10, 100, 1000, 10000};
+const uint32_t factors[10] = {1, 10, 100, 1000, 10000, 100000, 1000000,\
+							  10000000, 100000000, 1000000000};
 
-void plot_num(uint16_t num, uint8_t line, uint8_t col, uint8_t digits)
+void plot_num(uint32_t num, uint8_t line, uint8_t col, uint8_t digits)
 {
 	uint8_t z = 0;
 	
-	for (int8_t i = digits-1; i >= 0; i--)
-	{
-		uint8_t q = num / factors[i];				
-		
-		if (q)
-		{
-			plot_char('0' + q, line, col);
-			num -= q * factors[i];
-			z = 1;
-		}
-		else
-		{
-			if (z || !i) plot_char('0', line, col);
-			else         plot_char(' ', line, col);
-		}
-		
-		col++;
-	}	
-}
-
-void plot_num(uint16_t num, uint8_t line, uint8_t col, uint8_t digits)
-{
-	uint8_t z = 0;
+	uint8_t column = col * CHAR_WIDTH;
 	
-	if (num < 0)
-	{
-		
-	}
+	charfunc_t plot_char_function = plot_char_functions[scale];
 	
-	col++;
-	
-	for (int8_t i = digits-1; i >= 0; i--)
+	for (int8_t i = digits-1; i >= 0; i--, column+=(CHAR_WIDTH<<scale))
 	{
 		uint8_t q = num / factors[i];
 		
 		if (q)
 		{
-			plot_char('0' + q, line, col);
+			if (q > 9) q = 9;
+			plot_char_function('0' + q, line, column);
 			num -= q * factors[i];
 			z = 1;
 		}
 		else
 		{
-			if (z || !i) plot_char('0', line, col);
-			else         plot_char(' ', line, col);
+			if (z || !i) plot_char_function('0', line, column);
+			else         plot_char_function(' ', line, column);
 		}
+	}
+}
+
+void plot_num_signed(int32_t num, uint8_t line, uint8_t col, uint8_t digits)
+{
+	uint8_t z = 0;
+	char sign;
+	
+	uint8_t column = col * CHAR_WIDTH;
+	
+	charfunc_t plot_char_function = plot_char_functions[scale];
+	
+	if (num < 0)
+	{
+		sign = '-';
+		num = -num;
+	}
+	else
+	{
+		sign = ' ';
+	}
+	
+	for (int8_t i = digits-1; i >= 0; i--, column+=(CHAR_WIDTH<<scale))
+	{
+		uint8_t q = num / factors[i];
 		
-		col++;
+		if (q)
+		{
+			if (q > 9) q = 9;
+			
+			if (!z)
+			{
+				plot_char_function(sign, line, column);
+				column += (CHAR_WIDTH<<scale);
+				z = 1;
+			}
+
+			plot_char_function('0' + q, line, column);
+			num -= q * factors[i];			
+		}
+		else
+		{
+			if (z)
+			{
+				plot_char_function('0', line, column);
+			}
+			else if (!i)
+			{
+				plot_char_function(' ', line, column);
+				column += (CHAR_WIDTH<<scale);
+				plot_char_function('0', line, column);
+			}
+			else
+			{
+				plot_char(' ', line, column);
+			}
+		}
 	}
 }
 
